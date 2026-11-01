@@ -191,8 +191,8 @@ def _set_project(app, plan: DocPlan, log) -> bool:
             app.getProjectParam("frameRate").setValue(float(plan.fps))
     except Exception as e:
         log(f"rotobot-natron: could not set the frame rate ({e})")
-    # Natron 2.5 headless ignores App.addFormat, and only non-default project
-    # settings are saved, so a built-in format is chosen when one matches.
+    # A built-in format of the same size when there is one, else a new one
+    # (App.addFormat wants "Name WxH PAR" with no space in the name).
     w, h = int(plan.width), int(plan.height)
     try:
         fmt = app.getProjectParam("outputFormat")
@@ -201,7 +201,7 @@ def _set_project(app, plan: DocPlan, log) -> bool:
         if want in names:
             fmt.setValue(names.index(want))
             return True
-        app.addFormat(f"Rotobot_{w}x{h} {w}x{h} 1")  # takes effect in the GUI
+        app.addFormat(f"Rotobot_{w}x{h} {w}x{h} 1")
         for i in range(fmt.getNumOptions()):
             if fmt.getOption(i).startswith(f"Rotobot_{w}x{h}"):
                 fmt.setValue(i)

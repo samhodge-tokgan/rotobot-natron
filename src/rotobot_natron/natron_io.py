@@ -10,8 +10,11 @@ The only module that imports ``NatronEngine``. Tested against Natron 2.5.0
   after it.
 * The per-shape extra matrix is a 9-dimension knob Python cannot reach
   (``getParam("extraMatrix")`` is ``None``), hence no camera matrix.
-* ``getIsActivated(t)`` does not follow the animated value; the
-  ``getActivatedParam()`` value does.
+* The animated "activated" value is ignored by the renderer (and by
+  ``getIsActivated``), so visibility is keyed on opacity.
+* A Roto node renders at most ~64 shapes: when its internal Merge fills, more
+  are chained, but the node outputs the first (``getMergeNode`` returns
+  ``globalMergeNodes.front()``). Hence one node per person.
 * ``Layer.getChildren()`` returns plain items; ``Roto.getItemByName`` returns
   the typed object.
 """
@@ -46,13 +49,75 @@ def _layer(roto, parent, label: str, cache: Dict[Tuple[str, ...], Any], path: Tu
     return lay
 
 
-def build_node(app, plan: DocPlan, source_path: str = "", node_name: str = "Rotobot",
-               feather: float = 0.0, log=print, point_keys: str = "all"):
-    """Create a Roto node holding every shape of ``plan``. Returns the node.
+#: Natron 2.5 renders at most 64 shapes of one Roto node (they are merged by a
+#: single internal Merge node); shapes past that are silently dropped. So each
+#: person gets their own node, split further when one person has more.
+MAX_SHAPES_PER_NODE = 60
+#: Width (frames) of a visibility step.
+VIS_STEP = 1e-3
+
+
+def node_groups(plan: DocPlan) -> List[Tuple[str, List[Any]]]:
+    """(suffix, shapes) per Roto node: one per person, chunked to MAX_SHAPES_PER_NODE."""
+    by: Dict[str, List[Any]] = {}
+    for s in plan.shapes:
+        by.setdefault(s.layers[0], []).append(s)
+    out = []
+    for person, shapes in by.items():
+        for i in range(0, len(shapes), MAX_SHAPES_PER_NODE):
+            part = shapes[i:i + MAX_SHAPES_PER_NODE]
+            out.append((person if len(shapes) <= MAX_SHAPES_PER_NODE else f"{person}_{i // MAX_SHAPES_PER_NODE}", part))
+    return out
+
+
+def build_nodes(app, plan: DocPlan, source_path: str = "", node_name: str = "Rotobot",
+                feather: float = 0.0, log=print, point_keys: str = "all") -> List[Any]:
+    """Create the Roto nodes for ``plan`` -- ``<node_name>_<person>``, each
+    composited over the previous one through its Bg input -- and return them;
+    the last is the output. Connect the plate to the first one's Bg input.
 
     ``point_keys="first"`` keys the control points on each shape's first frame
     only (transforms and visibility are still keyed on every frame); the rest
     are spliced into the saved project by :func:`import_json_fast`."""
+    fitted = _set_project(app, plan, log)
+    nodes: List[Any] = []
+    for suffix, shapes in node_groups(plan):
+        node = _build_one(app, plan, shapes, source_path, f"{node_name}_{suffix}", feather, log, point_keys)
+        if nodes:
+            node.connectInput(0, nodes[-1])
+        node.setPosition(0.0, 120.0 * len(nodes))
+        nodes.append(node)
+    if not fitted and nodes:
+        _canvas(app, plan, nodes[0], f"{node_name}_canvas", log)
+    return nodes
+
+
+def _canvas(app, plan: DocPlan, first, name: str, log) -> None:
+    """A transparent Constant of the plate's size on the first node's Bg input,
+    so the shapes are not cropped to a project format of another size. Replace
+    it with the plate when you have one."""
+    try:
+        c = app.createNode("net.sf.openfx.ConstantPlugin")
+        c.setScriptName(name)
+        ex = c.getParam("extent")
+        ex.setValue([ex.getOption(i) for i in range(ex.getNumOptions())].index("size"))
+        c.getParam("size").setValue(float(plan.width), 0)
+        c.getParam("size").setValue(float(plan.height), 1)
+        c.getParam("bottomLeft").setValue(0.0, 0)
+        c.getParam("bottomLeft").setValue(0.0, 1)
+        col = c.getParam("color")
+        for i in range(4):
+            col.setValue(0.0, i)
+        fr = c.getParam("frameRange")
+        fr.setValue(int(plan.first), 0)
+        fr.setValue(int(plan.last), 1)
+        first.connectInput(0, c)
+        c.setPosition(0.0, -120.0)
+    except Exception as e:
+        log(f"rotobot-natron: could not add a {int(plan.width)}x{int(plan.height)} canvas ({e})")
+
+
+def _build_one(app, plan: DocPlan, shapes, source_path: str, node_name: str, feather: float, log, point_keys: str):
     t0 = time.time()
     node = app.createNode(PLUGIN_ID)
     node.setScriptName(node_name)
@@ -65,11 +130,10 @@ def build_node(app, plan: DocPlan, source_path: str = "", node_name: str = "Roto
         q.setValue(plan.offset)
     except Exception as e:  # user params are a convenience; export can be told the source
         log(f"rotobot-natron: could not store the source path on the node ({e})")
-    _set_project(app, plan, log)
 
     base = roto.getBaseLayer()
     layers: Dict[Tuple[str, ...], Any] = {}
-    for i, s in enumerate(plan.shapes):
+    for i, s in enumerate(shapes):
         parent = base
         for depth in range(len(s.layers)):
             parent = _layer(roto, parent, s.layers[depth], layers, tuple(s.layers[: depth + 1]))
@@ -97,21 +161,26 @@ def build_node(app, plan: DocPlan, source_path: str = "", node_name: str = "Roto
             tr.setValueAtTime(fr.translate[0], t, 0)
             tr.setValueAtTime(fr.translate[1], t, 1)
             ro.setValueAtTime(fr.rotate, t, 0)
-        act = b.getActivatedParam()
+        # Visibility as opacity: Natron 2.5's renderer ignores the animated
+        # "activated" value. Each change is a step just before the frame (a
+        # hold key, as Silhouette's), so motion-blur samples do not fade.
+        op = b.getOpacityParam()
         prev: Optional[bool] = None
         for t in sorted(s.visible):
             v = s.visible[t]
             if v != prev:
-                act.setValueAtTime(v, t)
-                if prev is not None:  # hold: key the frame before too, so nothing fades in between
-                    act.setValueAtTime(prev, t - 1)
+                if prev is not None:
+                    op.setValueAtTime(1.0 if prev else 0.0, t - VIS_STEP)
+                op.setValueAtTime(1.0 if v else 0.0, t)
                 prev = v
-        log(f"rotobot-natron: {i + 1}/{len(plan.shapes)} {s.key} ({n} points x {len(times)} frames)")
-    log(f"rotobot-natron: built {len(plan.shapes)} shapes in {time.time() - t0:.1f} s")
+        log(f"rotobot-natron: {node_name} {i + 1}/{len(shapes)} {s.key} ({n} points x {len(times)} frames)")
+    log(f"rotobot-natron: built {node_name}, {len(shapes)} shapes, in {time.time() - t0:.1f} s")
     return node
 
 
-def _set_project(app, plan: DocPlan, log) -> None:
+def _set_project(app, plan: DocPlan, log) -> bool:
+    """Frame range, rate and format. False when no project format of the
+    plate's size could be chosen."""
     try:
         app.getProjectParam("frameRange").set(int(plan.first), int(plan.last))
         app.getProjectParam("lockRange").setValue(True)
@@ -131,16 +200,16 @@ def _set_project(app, plan: DocPlan, log) -> None:
         want = BUILTIN_FORMATS.get((w, h))
         if want in names:
             fmt.setValue(names.index(want))
-            return
+            return True
         app.addFormat(f"Rotobot_{w}x{h} {w}x{h} 1")  # takes effect in the GUI
         for i in range(fmt.getNumOptions()):
             if fmt.getOption(i).startswith(f"Rotobot_{w}x{h}"):
                 fmt.setValue(i)
-                return
-        log(f"rotobot-natron: no {w}x{h} project format; set Project Settings > Output Format "
-            "(or connect the plate) so the shapes are not cropped")
+                return True
+        log(f"rotobot-natron: no {w}x{h} project format; adding a {w}x{h} canvas instead")
     except Exception as e:
         log(f"rotobot-natron: could not set the project format ({e})")
+    return False
 
 
 #: Natron 2.5's built-in square-pixel formats.
@@ -152,24 +221,25 @@ BUILTIN_FORMATS = {
 }
 
 
-def import_json(app, path: str, **kw):
+def import_json(app, path: str, **kw) -> List[Any]:
     """Build through the Python API alone: exact, but slow on big shapes
-    (see :mod:`rotobot_natron.ntp_splice`)."""
+    (see :mod:`rotobot_natron.ntp_splice`). Returns the nodes."""
     with open(path) as f:
         raw = json.load(f)
-    return build_node(app, model.build_plan(raw), source_path=path, **kw)
+    return build_nodes(app, model.build_plan(raw), source_path=path, **kw)
 
 
 def import_json_fast(app, path: str, project_path: str, node_name: str = "Rotobot", log=print, **kw):
-    """Build with one point key per shape, save to ``project_path``, splice in
-    every frame's keys, and reload. Returns ``(app, node)`` of the reloaded
+    """Build with one point key per shape, save, splice in every frame's keys,
+    and reload from ``project_path``. Returns ``(app, nodes)`` of the reloaded
     project; the caller should use those from now on."""
     from . import ntp_splice
 
     with open(path) as f:
         raw = json.load(f)
     plan = model.build_plan(raw)
-    build_node(app, plan, source_path=path, node_name=node_name, log=log, point_keys="first", **kw)
+    names = [n.getScriptName() for n in build_nodes(app, plan, source_path=path, node_name=node_name,
+                                                     log=log, point_keys="first", **kw)]
     t0 = time.time()
     # Saved under another name: reloading the path the app already has open
     # comes back without its nodes.
@@ -190,11 +260,11 @@ def import_json_fast(app, path: str, project_path: str, node_name: str = "Rotobo
     app2 = app.loadProject(project_path)
     if app2 is None:
         raise RuntimeError(f"Natron could not reload {project_path} after the splice")
-    node = app2.getNode(node_name)
-    if node is None:
-        raise RuntimeError(f"{project_path} reloaded without its {node_name} node")
+    nodes = [app2.getNode(nm) for nm in names]
+    if any(nd is None for nd in nodes):
+        raise RuntimeError(f"{project_path} reloaded without its Rotobot nodes")
     log(f"rotobot-natron: spliced {n} shapes and reloaded in {time.time() - t0:.1f} s")
-    return app2, node
+    return app2, nodes
 
 
 # -------------------------------------------------------------------- export
@@ -225,11 +295,23 @@ def _xform_at(b, t: float) -> ShapeXform:
     )
 
 
-def dump_node(node, raw: Mapping[str, Any]) -> List[ShapeDump]:
-    """Every Bezier under ``node``, read at the source document's frames."""
-    roto = node.getRotoContext()
+def rotobot_nodes(app, source: Optional[str] = None) -> List[Any]:
+    """The Roto nodes an import created (those carrying the source parameter),
+    optionally only those from ``source``."""
+    out = []
+    for n in app.getChildren():
+        p = n.getParam(SOURCE_PARAM)
+        if p is not None and (source is None or p.getValue() == source):
+            out.append(n)
+    return out
+
+
+def dump_nodes(nodes, raw: Mapping[str, Any]) -> List[ShapeDump]:
+    """Every Bezier under ``nodes``, read at the source document's frames."""
     shapes: List[Any] = []
-    _walk(roto, roto.getBaseLayer(), shapes)
+    for node in nodes:
+        roto = node.getRotoContext()
+        _walk(roto, roto.getBaseLayer(), shapes)
     off = model.frame_offset(raw)
     objs = raw["objects"]
     dumps = []
@@ -251,14 +333,16 @@ def source_of(node) -> Optional[str]:
     return p.getValue() if p is not None else None
 
 
-def export_json(node, out_path: str, source_path: Optional[str] = None):
-    """Write ``node``'s shapes back over a copy of the source JSON. Returns the report."""
-    src = source_path or source_of(node)
+def export_json(nodes, out_path: str, source_path: Optional[str] = None):
+    """Write the shapes of ``nodes`` (all the nodes of one import) back over a
+    copy of the source JSON. Returns the report."""
+    nodes = list(nodes) if isinstance(nodes, (list, tuple)) else [nodes]
+    src = source_path or source_of(nodes[0])
     if not src:
         raise model.ExportError(["the node has no Rotobot source JSON; pass source_path"])
     with open(src) as f:
         raw = json.load(f)
-    out, rep = model.export_json(raw, dump_node(node, raw))
+    out, rep = model.export_json(raw, dump_nodes(nodes, raw))
     with open(out_path, "w") as f:
         json.dump(out, f)
     return rep

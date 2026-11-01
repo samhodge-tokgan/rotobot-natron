@@ -56,11 +56,11 @@ print(f"source: {len(raw['objects'])} objects, {npts} points/frame, {nfr} frames
 ntp = os.path.join(out, "roundtrip.ntp")
 t = time.time()
 if os.environ.get("RN_MODE", "fast") == "fast":
-    app, node = natron_io.import_json_fast(app, src, ntp, log=lambda s: None)
+    app, nodes = natron_io.import_json_fast(app, src, ntp, log=lambda s: None)
     t_imp = time.time() - t
     t_save = 0.0
 else:
-    node = natron_io.import_json(app, src, log=lambda s: None)
+    nodes = natron_io.import_json(app, src, log=lambda s: None)
     t_imp = time.time() - t
     t = time.time()
     app.saveProjectAs(ntp)
@@ -69,10 +69,11 @@ print(f"import ({os.environ.get('RN_MODE', 'fast')}) {t_imp:.1f} s, save {t_save
       f".ntp {os.path.getsize(ntp) / 1e6:.1f} MB", flush=True)
 
 t = time.time()
+names = [n.getScriptName() for n in nodes]
 app2 = app.loadProject(ntp)
-node = app2.getNode("Rotobot")
-print(f"reload {time.time() - t:.1f} s", flush=True)
-check(node is not None and natron_io.source_of(node) == src, "the reloaded node remembers its source JSON")
+node = [app2.getNode(nm) for nm in names]
+print(f"reload {time.time() - t:.1f} s, {len(node)} Roto node(s): {', '.join(names)}", flush=True)
+check(all(n is not None and natron_io.source_of(n) == src for n in node), "the reloaded nodes remember their source JSON")
 
 t = time.time()
 rep = natron_io.export_json(node, os.path.join(out, "unedited.json"))
@@ -92,14 +93,20 @@ if back != raw:
     print(f"  worst knot difference {worst:.2e} px", flush=True)
 
 # ---- edits: pull one handle of a B-spline object; nudge another object's transform
-roto = node.getRotoContext()
+def item(key):
+    for n in node:
+        it = n.getRotoContext().getItemByName(model.script_name(key))
+        if it is not None:
+            return it
+
+
 cps_keys = [k for k, o in raw["objects"].items() if "cps" in next(iter(o["frames"].values()))]
 plain_keys = [k for k in raw["objects"] if k not in cps_keys]
 off = model.frame_offset(raw)
 edit_frame = sorted(next(iter(raw["objects"].values()))["frames"], key=int)[min(5, nfr - 1)]
 tt = float(int(edit_frame) + off)
 if cps_keys:
-    b = roto.getItemByName(model.script_name(cps_keys[0]))
+    b = item(cps_keys[0])
     x, y, lx, ly, rx, ry = b.getControlPointPosition(2, tt)
     b.setPointAtIndex(2, tt, x, y, lx, ly, rx + 12.0, ry + 5.0)
     b.setFeatherPointAtIndex(2, tt, x, y, lx, ly, rx + 12.0, ry + 5.0)
@@ -107,7 +114,7 @@ moved = plain_keys[0] if plain_keys else (cps_keys[1] if len(cps_keys) > 1 else 
 if moved:
     moved_frame = sorted(raw["objects"][moved]["frames"], key=int)[-1]
     tm = float(int(moved_frame) + off)
-    b2 = roto.getItemByName(model.script_name(moved))
+    b2 = item(moved)
     tr = b2.getParam("translate")
     tr.setValueAtTime(tr.getValueAtTime(tm, 0) + 7.0, tm, 0)
 rep = natron_io.export_json(node, os.path.join(out, "edited.json"))
@@ -124,7 +131,7 @@ if moved:
 check(set(rep.edited) <= {cps_keys[0] if cps_keys else None, moved}, "nothing else changed")
 
 # ---- a deleted shape is refused
-victim = roto.getItemByName(model.script_name(list(raw["objects"])[-1]))
+victim = item(list(raw["objects"])[-1])
 victim.getParentLayer().removeItem(victim)
 try:
     natron_io.export_json(node, os.path.join(out, "refused.json"))

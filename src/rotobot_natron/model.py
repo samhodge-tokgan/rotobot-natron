@@ -9,8 +9,9 @@ Import (:func:`build_plan`)
     Python, so the camera is folded into the local points; the composition is
     still exact: ``plate = T + R(rotate) . local``.
 
-    JSON coordinates are Y-down plate pixels; Natron's canonical space is
-    y-up, so ``y_natron = height - y``. Natron time is the JSON frame number
+    JSON coordinates are Y-down plate pixels with pixel i's centre at i;
+    Natron's canonical space is y-up with pixel centres at i + 0.5, so
+    ``x_natron = x + 0.5`` and ``y_natron = height - (y + 0.5)``. Natron time is the JSON frame number
     plus ``frame_start - 1`` (0 when the file has no ``frame_start``).
 
 Export (:func:`export_json`)
@@ -141,8 +142,20 @@ def _knot(p: Mapping[str, Any]) -> Knot:
             float(p["right_x"]), float(p["right_y"]))
 
 
+#: JSON coordinate i is the CENTRE of pixel i; Natron (like every DCC) puts
+#: pixel i's centre at i + 0.5, and counts rows from the bottom.
+PIXEL_CENTRE = 0.5
+
+
 def _flip(k: Knot, h: float) -> Knot:
-    return (k[0], h - k[1], k[2], h - k[3], k[4], h - k[5])
+    """JSON (Y-down, centres at i) -> Natron canonical (y-up, centres at i + 0.5)."""
+    c = PIXEL_CENTRE
+    return (k[0] + c, h - (k[1] + c), k[2] + c, h - (k[3] + c), k[4] + c, h - (k[5] + c))
+
+
+def _unflip(x: float, y: float, h: float) -> Tuple[float, float]:
+    """Natron canonical -> JSON."""
+    return (x - PIXEL_CENTRE, h - y - PIXEL_CENTRE)
 
 
 # -------------------------------------------------------------------- import
@@ -182,8 +195,8 @@ def _bone_series(frames: Mapping[str, Any], h: float, order: Sequence[int]) -> D
     for f in order:
         b = frames[str(f)].get("bone") if isinstance(frames[str(f)], Mapping) else None
         try:
-            x0, y0 = float(b["pt0"]["x"]), h - float(b["pt0"]["y"])
-            x1, y1 = float(b["pt1"]["x"]), h - float(b["pt1"]["y"])
+            x0, y0 = float(b["pt0"]["x"]) + PIXEL_CENTRE, h - float(b["pt0"]["y"]) - PIXEL_CENTRE
+            x1, y1 = float(b["pt1"]["x"]) + PIXEL_CENTRE, h - float(b["pt1"]["y"]) - PIXEL_CENTRE
         except (TypeError, KeyError, ValueError):
             continue
         if not all(math.isfinite(v) for v in (x0, y0, x1, y1)):
@@ -333,10 +346,10 @@ def export_json(raw: Mapping[str, Any], dumps: Sequence[ShapeDump]) -> Tuple[Dic
             m = xf.matrix()
             plate: List[Knot] = []
             for k in pts:
-                a = apply(m, k[0], k[1])
-                b = apply(m, k[2], k[3])
-                c = apply(m, k[4], k[5])
-                plate.append((a[0], h - a[1], b[0], h - b[1], c[0], h - c[1]))
+                a = _unflip(*apply(m, k[0], k[1]), h)
+                b = _unflip(*apply(m, k[2], k[3]), h)
+                c = _unflip(*apply(m, k[4], k[5]), h)
+                plate.append((a[0], a[1], b[0], b[1], c[0], c[1]))
             if not all(math.isfinite(v) for k in plate for v in k):
                 errs.append(f"{key} frame {fk}: a point is not finite")
                 continue

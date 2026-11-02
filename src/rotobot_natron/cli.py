@@ -51,6 +51,7 @@ def main(argv=None) -> int:
     lp.add_argument("file", type=Path)
     lp.add_argument("--package-dir", action="append", default=[],
                     help="a directory holding rotobot_natron for the launcher to try first (repeatable)")
+    lp.add_argument("--stem", default="", help="name the script STEM_natron.py and the project STEM.ntp")
     a = ap.parse_args(argv)
 
     if a.cmd == "install-plugin":
@@ -75,7 +76,7 @@ def main(argv=None) -> int:
             print(f"{a.file}: OK, {len(plan.shapes)} shapes, Natron frames {plan.first}-{plan.last}")
         return 1 if errs else 0
     if a.cmd == "launcher":
-        out = launcher.write(str(a.file), a.package_dir)
+        out = launcher.write(str(a.file), a.package_dir, a.stem)
         print(f"Wrote {out}\nOpen it with Natron: Natron {out}")
         return 0
     return 2

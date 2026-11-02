@@ -38,6 +38,7 @@ import os
 import sys
 
 JSON_NAME = {json_name!r}
+NTP_NAME = {ntp_name!r}
 SCRIPT_NAME = {script_name!r}
 WRITTEN_IN = {written_in!r}
 PACKAGE_DIRS = {package_dirs!r}
@@ -90,7 +91,7 @@ def main():
         return
     app = globals().get("app1") or globals().get("app")
     try:
-        natron_io.open_shot(app, src)
+        natron_io.open_shot(app, src, os.path.join(here, NTP_NAME))
     except Exception as e:
         _fail("could not open %s:\\n%s" % (JSON_NAME, e))
         raise
@@ -100,25 +101,32 @@ main()
 '''
 
 
-def script_name(json_path: str) -> str:
-    return os.path.splitext(os.path.basename(json_path))[0] + "_natron.py"
+def _stem(json_path: str, stem: str = "") -> str:
+    return stem or os.path.splitext(os.path.basename(json_path))[0]
 
 
-def render(json_path: str, package_dirs: Iterable[str] = ()) -> str:
-    """The launcher's text for ``json_path``. ``package_dirs`` are searched for
-    a ``rotobot_natron`` package before any installed one."""
+def script_name(json_path: str, stem: str = "") -> str:
+    """``<stem>_natron.py``; the stem defaults to the JSON's."""
+    return _stem(json_path, stem) + "_natron.py"
+
+
+def render(json_path: str, package_dirs: Iterable[str] = (), stem: str = "") -> str:
+    """The launcher's text for ``json_path``, which must sit beside it.
+    ``package_dirs`` are searched for ``rotobot_natron`` first; ``stem`` names
+    the script and the project (``<stem>_natron.py``, ``<stem>.ntp``) and
+    defaults to the JSON's."""
     from ._version import __version__
 
-    stem = os.path.splitext(os.path.basename(json_path))[0]
-    return _TEMPLATE.format(script_name=script_name(json_path), json_name=os.path.basename(json_path),
+    stem = _stem(json_path, stem)
+    return _TEMPLATE.format(script_name=script_name(json_path, stem), json_name=os.path.basename(json_path),
                             ntp_name=stem + ".ntp", version=__version__, min_version=MIN_VERSION,
                             written_in=os.path.dirname(os.path.abspath(json_path)),
                             package_dirs=[str(d) for d in package_dirs])
 
 
-def write(json_path: str, package_dirs: Iterable[str] = ()) -> str:
+def write(json_path: str, package_dirs: Iterable[str] = (), stem: str = "") -> str:
     """Write the launcher next to ``json_path``. Returns its path."""
-    out = os.path.join(os.path.dirname(os.path.abspath(json_path)), script_name(json_path))
+    out = os.path.join(os.path.dirname(os.path.abspath(json_path)), script_name(json_path, stem))
     with open(out, "w", encoding="utf-8") as f:
-        f.write(render(json_path, package_dirs))
+        f.write(render(json_path, package_dirs, stem))
     return out

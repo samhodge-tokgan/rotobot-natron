@@ -12,7 +12,7 @@ STUB = '''
 import json, os
 def open_shot(app, json_path, project_path=None, log=print):
     with open(os.path.join(os.path.dirname(json_path), "opened.json"), "w") as f:
-        json.dump({"app": app, "json": json_path, "file": __file__}, f)
+        json.dump({"app": app, "json": json_path, "ntp": project_path, "file": __file__}, f)
 '''
 
 
@@ -76,3 +76,14 @@ def test_cli_writes_the_launcher(tmp_path, capsys):
     (tmp_path / "s.json").write_text("{}")
     assert cli.main(["launcher", str(tmp_path / "s.json"), "--package-dir", "/opt/x"]) == 0
     assert "PACKAGE_DIRS = ['/opt/x']" in (tmp_path / "s_natron.py").read_text()
+
+
+def test_stem_names_the_script_and_the_project(tmp_path):
+    (tmp_path / "plates__123.json").write_text("{}")
+    _stub(tmp_path / "pkg")
+    script = launcher.write(str(tmp_path / "plates__123.json"), [str(tmp_path / "pkg")], stem="shot_010")
+    assert os.path.basename(script) == "shot_010_natron.py"
+    p = _run(tmp_path / "shot_010_natron.py", cwd=tmp_path)
+    assert p.returncode == 0, p.stdout + p.stderr
+    got = json.loads((tmp_path / "opened.json").read_text())
+    assert got["json"] == str(tmp_path / "plates__123.json") and got["ntp"] == str(tmp_path / "shot_010.ntp")

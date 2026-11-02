@@ -49,6 +49,9 @@ On a 4096×2160 test shot with 69 shapes, 3,038 points per frame and 120 frames,
 
 * Natron 2.x renders Roto shapes **without antialiasing**, into an 8-bit mask per shape. Its built-in Roto motion blur is compiled out of every 2.x release. For a motion-blurred matte, put a TimeBlur node after the Roto node.
 * Shape keys interpolate as Natron "Smooth" (clamped Catmull-Rom). Every source frame is keyed, so values on frames are exact.
+* A point whose two handles are not in line with it (a kink) comes back from a
+  saved Natron 2.5 project with its handles re-aligned. Rotobot output never
+  has kinks; a kink drawn in Natron is exported as Natron keeps it.
 * The per-shape "extra matrix" is not reachable from Python, so a projective camera move is folded into the points, not the transform.
 
 ## Tests

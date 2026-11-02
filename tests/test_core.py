@@ -91,7 +91,7 @@ def test_plan_frames_visibility_and_layers():
     doc = document()
     plan = build_plan(doc)
     assert (plan.first, plan.last, plan.offset) == (1001, 1012, 1000)
-    arm, head = plan.shapes
+    arm, head, _palm = plan.shapes
     assert arm.script_name == "p0_arm_L_forearm" and arm.layers == ["p0", "p0_arm", "p0_arm_L"]
     assert arm.visible[1005] is False and arm.visible[1006] is True
     assert 1003 not in head.frames and head.visible[1003] is False
@@ -105,7 +105,7 @@ def test_unedited_round_trip_is_verbatim():
     doc = document()
     out, rep = export_json(doc, dumps_from_plan(build_plan(doc)))
     assert out == doc
-    assert rep.unchanged_frames == 12 + 11 and not rep.edited
+    assert rep.unchanged_frames == 12 + 11 + 11 and not rep.edited
 
 
 def test_moving_the_transform_moves_the_plate_points():
@@ -200,7 +200,7 @@ def test_install_plugin_and_check(tmp_path, capsys):
     f = tmp_path / "doc.json"
     f.write_text(json.dumps(document()))
     assert cli.main(["check", str(f)]) == 0
-    assert "OK, 2 shapes, Natron frames 1001-1012" in capsys.readouterr().out
+    assert "OK, 3 shapes, Natron frames 1001-1012" in capsys.readouterr().out
     bad = document()
     bad["schema"] = "other"
     f.write_text(json.dumps(bad))

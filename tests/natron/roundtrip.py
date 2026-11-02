@@ -110,6 +110,9 @@ if cps_keys:
     x, y, lx, ly, rx, ry = b.getControlPointPosition(2, tt)
     b.setPointAtIndex(2, tt, x, y, lx, ly, rx + 12.0, ry + 5.0)
     b.setFeatherPointAtIndex(2, tt, x, y, lx, ly, rx + 12.0, ry + 5.0)
+# Not the last shape of a person: Natron leaves that one selected, and a
+# selected shape's transform reads from the node's controls (where the GUI
+# edits it), so a script writing the shape's own knob would not show.
 moved = plain_keys[0] if plain_keys else (cps_keys[1] if len(cps_keys) > 1 else None)
 if moved:
     moved_frame = sorted(raw["objects"][moved]["frames"], key=int)[-1]

@@ -28,6 +28,24 @@ Then add the printed directory to `NATRON_PLUGIN_PATH` and restart Natron. Natro
 
 `rotobot-natron check FILE.json` reports whether a file can be opened.
 
+If a menu closes before you can pick an item (seen with Natron 2.5's Qt4 on
+GNOME), press and hold on *Rotobot*, drag to the item, then release, or run
+the same commands from the Script Editor:
+
+```
+rotobot_natron.menu.import_cmd()
+rotobot_natron.menu.export_cmd()
+```
+
+Errors from the menu commands are printed in the Script Editor.
+
+If Natron 2.5 crashes at start-up on a Linux desktop with an NVIDIA driver, start
+it with Mesa's OpenGL instead (the viewer then draws in software):
+
+```
+__GLX_VENDOR_LIBRARY_NAME=mesa /path/to/Natron
+```
+
 ### Large shots
 
 In Natron 2.5, setting one control point through the Python API costs time in proportion to the shape's points times its keyframes. Building a dense shot point by point therefore slows down with the square of both.

@@ -28,8 +28,12 @@ rc=0
 for mode in fast api; do
   echo "== $mode"
   RN_MODE=$mode RN_SRC="$here/src" RN_JSON="$work/synth.json" RN_OUT="$work/out_$mode" \
-    "$natron" -t "$here/tests/natron/roundtrip.py" </dev/null 2>&1 \
-    | grep -E '^(source|import|reload|export|PASS|FAIL|RESULT|  |[0-9]+ frame|warning)' | tee "$work/$mode.log" || true
-  grep -q '^RESULT PASS' "$work/$mode.log" || rc=1
+    "$natron" -t "$here/tests/natron/roundtrip.py" </dev/null >"$work/$mode.raw" 2>&1 || echo "NatronRenderer exit $?" >>"$work/$mode.raw"
+  grep -E '^(source|import|reload|export|PASS|FAIL|RESULT|  |[0-9]+ frame|warning)' "$work/$mode.raw" | tee "$work/$mode.log" || true
+  if ! grep -q '^RESULT PASS' "$work/$mode.log"; then
+    rc=1
+    echo "-- last lines from Natron ($mode):"
+    grep -v '^OpenFX: loading' "$work/$mode.raw" | tail -40
+  fi
 done
 exit $rc

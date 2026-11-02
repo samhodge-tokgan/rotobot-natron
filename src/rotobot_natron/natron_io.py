@@ -247,6 +247,9 @@ def import_json_fast(app, path: str, project_path: str, node_name: str = "Rotobo
     app.saveProjectAs(one_key)
     with open(one_key) as f:
         text = f.read()
+    # Unload the one-key build: in the GUI, loading over a modified project
+    # opens a second window and leaves this one open.
+    app.resetProject()
     os.remove(one_key)
     shapes = {}
     for s in plan.shapes:
@@ -266,6 +269,21 @@ def import_json_fast(app, path: str, project_path: str, node_name: str = "Rotobo
     log(f"rotobot-natron: spliced {n} shapes and reloaded in {time.time() - t0:.1f} s")
     return app2, nodes
 
+
+
+def open_shot(app, json_path: str, project_path: Optional[str] = None, log=print, **kw):
+    """Open a shot for editing: load ``project_path`` (default: the JSON's path
+    with ``.ntp``) when it exists, so earlier edits are kept; otherwise build it
+    with :func:`import_json_fast`, which saves it there. Returns ``(app, nodes)``."""
+    if project_path is None:
+        project_path = os.path.splitext(json_path)[0] + ".ntp"
+    if os.path.exists(project_path):
+        app2 = app.loadProject(project_path)
+        if app2 is None:
+            raise RuntimeError(f"Natron could not open {project_path}")
+        log(f"rotobot-natron: opened {project_path} (delete it to rebuild from {os.path.basename(json_path)})")
+        return app2, rotobot_nodes(app2)
+    return import_json_fast(app, json_path, project_path, log=log, **kw)
 
 # -------------------------------------------------------------------- export
 

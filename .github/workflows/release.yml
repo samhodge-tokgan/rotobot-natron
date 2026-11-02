@@ -24,8 +24,13 @@ jobs:
 
   natron:
     runs-on: [self-hosted, linux, x64, gce-cpu]
+    # Natron loads GL/X client libraries from the host; the runner image has
+    # none, so the job brings its own (NatronRenderer -t needs no X server).
+    container: ubuntu:22.04
     steps:
       - uses: actions/checkout@v4
+      - name: Natron's host libraries
+        run: tests/natron/ci-deps.sh
       - name: Natron 2.5.0 round trip
         run: tests/natron/ci.sh
 

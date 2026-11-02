@@ -11,7 +11,9 @@ from . import model, natron_io
 
 
 def _app():
-    return NatronGui.natron.getActiveInstance()
+    """The active project as a GuiApp: getActiveInstance() returns the engine's
+    App, which has no file dialogs or node selection."""
+    return NatronGui.natron.getGuiInstance(NatronGui.natron.getActiveInstance().getAppID())
 
 
 def import_cmd():

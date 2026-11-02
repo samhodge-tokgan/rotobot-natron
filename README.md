@@ -9,7 +9,7 @@ Open Rotobot-Next shape files (`lozenge_bezier_anim` JSON) in [Natron](https://n
   * Objects that carry B-spline control points (`cps`) stay B-splines. An edit that is no longer an exact B-spline is refit with the same number of control points, and the deviation is reported.
 * **Export refuses changes it can't map back**, and says what is wrong: a shape added or deleted, or points added or removed.
 
-Requires Natron 2.5 (tested with 2.5.0 on Linux). The package is plain Python with no dependencies.
+Requires Natron 2.5 or later (tested with 2.5.0 on Linux and 2.6 on macOS arm64). The package is plain Python with no dependencies.
 
 ## Install
 
@@ -27,6 +27,17 @@ Then add the printed directory to `NATRON_PLUGIN_PATH` and restart Natron. Natro
 * **Rotobot → Export Rotobot JSON…** writes a new JSON next to the source.
 
 `rotobot-natron check FILE.json` reports whether a file can be opened.
+
+### Open a shot from a launcher script
+
+```
+rotobot-natron launcher shot.json      # writes shot_natron.py beside it
+Natron shot_natron.py
+```
+
+The first time, the launcher builds `shot.ntp` beside the JSON (with the fast import below) and opens it. After that it opens `shot.ntp`, so your edits are kept; delete it to rebuild from the JSON. `NatronRenderer shot_natron.py` builds the project without the GUI.
+
+The launcher uses the `rotobot_natron` that the plugin loaded. Without the plugin, it looks in any `--package-dir` given when it was written, then in a `rotobot_natron` folder beside the script.
 
 If a menu closes before you can pick an item (seen with Natron 2.5's Qt4 on
 GNOME), press and hold on *Rotobot*, drag to the item, then release, or run

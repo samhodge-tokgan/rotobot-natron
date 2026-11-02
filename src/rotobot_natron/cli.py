@@ -2,6 +2,7 @@
 
     rotobot-natron install-plugin [--dest DIR]
     rotobot-natron check FILE.json
+    rotobot-natron launcher FILE.json
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from . import _version, model
+from . import _version, launcher, model
 
 PKG = Path(__file__).resolve().parent
 
@@ -46,6 +47,11 @@ def main(argv=None) -> int:
     ip.add_argument("--dest", type=Path, default=None, help=f"plugin directory (default {default_dest()})")
     cp = sub.add_parser("check", help="check that a Rotobot JSON file can be opened in Natron")
     cp.add_argument("file", type=Path)
+    lp = sub.add_parser("launcher", help="write FILE_natron.py, which opens the shot when run with Natron")
+    lp.add_argument("file", type=Path)
+    lp.add_argument("--package-dir", action="append", default=[],
+                    help="a directory holding rotobot_natron for the launcher to try first (repeatable)")
+    lp.add_argument("--stem", default="", help="name the script STEM_natron.py and the project STEM.ntp")
     a = ap.parse_args(argv)
 
     if a.cmd == "install-plugin":
@@ -69,6 +75,10 @@ def main(argv=None) -> int:
             plan = model.build_plan(raw)
             print(f"{a.file}: OK, {len(plan.shapes)} shapes, Natron frames {plan.first}-{plan.last}")
         return 1 if errs else 0
+    if a.cmd == "launcher":
+        out = launcher.write(str(a.file), a.package_dir, a.stem)
+        print(f"Wrote {out}\nOpen it with Natron: Natron {out}")
+        return 0
     return 2
 
 

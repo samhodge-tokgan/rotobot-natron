@@ -36,4 +36,22 @@ for mode in fast api; do
     grep -v '^OpenFX: loading' "$work/$mode.raw" | tail -40
   fi
 done
+
+# The launcher (rotobot-natron launcher): builds the .ntp, then reopens it.
+echo "== launcher"
+mkdir -p "$work/launch" && rm -f "$work/launch/"*
+cp "$work/synth.json" "$work/launch/shot.json"
+PYTHONPATH="$here/src" python3 -m rotobot_natron.cli launcher "$work/launch/shot.json" --package-dir "$here/src" >/dev/null
+for run in build reopen; do
+  "$natron" -t "$work/launch/shot_natron.py" </dev/null >"$work/launch_$run.raw" 2>&1 || true
+  grep '^rotobot-natron: \(spliced\|opened\|could\)' "$work/launch_$run.raw" | tee "$work/launch_$run.log" || true
+done
+if grep -q 'spliced 3 shapes' "$work/launch_build.log" && grep -q '^rotobot-natron: opened' "$work/launch_reopen.log" \
+   && [ -s "$work/launch/shot.ntp" ]; then
+  echo "RESULT PASS launcher"
+else
+  rc=1
+  echo "RESULT FAIL launcher"
+  grep -v '^OpenFX: loading' "$work/launch_build.raw" | tail -40
+fi
 exit $rc
